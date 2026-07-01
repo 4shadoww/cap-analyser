@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import struct
 import sys
 import zipfile
@@ -61,6 +62,36 @@ def truncate(text: str, width: int) -> str:
     if len(text) <= width:
         return text
     return text[: max(0, width - 1)] + "…"
+
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def visible_len(text: str) -> int:
+    return len(_ANSI_RE.sub("", text))
+
+
+def box_row(style: Style, content: str, inner_width: int) -> str:
+    padding = inner_width - visible_len(content)
+    return (
+        f"{style.dim}│{style.reset}{content}{' ' * max(0, padding)}{style.dim}│{style.reset}"
+    )
+
+
+def box_top(style: Style, title: str, inner_width: int) -> str:
+    if len(title) > inner_width:
+        title = title[:inner_width]
+    return (
+        f"{style.yellow}{style.bold}┌{title}{'─' * (inner_width - len(title))}┐{style.reset}"
+    )
+
+
+def box_bottom(style: Style, inner_width: int) -> str:
+    return f"{style.yellow}└{'─' * inner_width}┘{style.reset}"
+
+
+def box_separator(style: Style, inner_width: int) -> str:
+    return f"{style.dim}│{'─' * inner_width}│{style.reset}"
 
 
 @dataclass(frozen=True)
@@ -2814,6 +2845,7 @@ def print_methods(
     total_size = sum(method.total_size for method in methods)
 
     name_width = min(48, max(len(f"{method.name}{method.descriptor}") for method in methods))
+    inner_width = name_width + 29
 
     for class_name in class_order:
         class_methods = sorted(by_class[class_name], key=lambda method: method.bytecode_size, reverse=True)
@@ -2824,25 +2856,34 @@ def print_methods(
         simple_name = class_name.rsplit(".", maxsplit=1)[-1]
         class_title = f" {simple_name} "
 
-        print(f"{style.yellow}{style.bold}┌{class_title}{'─' * max(0, 58 - len(class_title))}┐{style.reset}")
+        print(box_top(style, class_title, inner_width))
         print(
-            f"{style.dim}│{style.reset} "
-            f"{len(class_methods)} methods · "
-            f"{style.green}{format_bytes(class_bytecode)}{style.reset} bytecode · "
-            f"{style.bold}{format_bytes(class_total)}{style.reset} total · "
-            f"{class_share:.1f}% of package",
+            box_row(
+                style,
+                f" {len(class_methods)} methods · "
+                f"{style.green}{format_bytes(class_bytecode)}{style.reset} bytecode · "
+                f"{style.bold}{format_bytes(class_total)}{style.reset} total · "
+                f"{class_share:.1f}% of package",
+                inner_width,
+            ),
         )
         if class_name in best_effort_classes:
             print(
-                f"{style.dim}│{style.reset} "
-                f"{style.yellow}NOTE: best-effort match{style.reset}",
+                box_row(
+                    style,
+                    f" {style.yellow}NOTE: best-effort match{style.reset}",
+                    inner_width,
+                ),
             )
         print(
-            f"{style.dim}│{style.reset}  "
-            f"{'method':<{name_width}}  "
-            f"{'offset':>6}  {'hdr':>3}  {'bc':>5}  {'total':>5}",
+            box_row(
+                style,
+                f"  {'method':<{name_width}}  "
+                f"{'offset':>6}  {'hdr':>3}  {'bc':>5}  {'total':>5}",
+                inner_width,
+            ),
         )
-        print(f"{style.dim}│{'─' * (name_width + 28)}│{style.reset}")
+        print(box_separator(style, inner_width))
 
         for method in class_methods:
             display_name = truncate(
@@ -2850,23 +2891,29 @@ def print_methods(
                 name_width,
             )
             print(
-                f"{style.dim}│{style.reset}  "
-                f"{display_name:<{name_width}}  "
-                f"{method.offset:6d}  "
-                f"{method.header_size:3d}  "
-                f"{method.bytecode_size:5d}  "
-                f"{style.bold}{method.total_size:5d}{style.reset}",
+                box_row(
+                    style,
+                    f"  {display_name:<{name_width}}  "
+                    f"{method.offset:6d}  "
+                    f"{method.header_size:3d}  "
+                    f"{method.bytecode_size:5d}  "
+                    f"{style.bold}{method.total_size:5d}{style.reset}",
+                    inner_width,
+                ),
             )
 
         print(
-            f"{style.dim}│{style.reset}  "
-            f"{'subtotal':<{name_width}}  "
-            f"{'':>6}  "
-            f"{class_header:3d}  "
-            f"{style.green}{class_bytecode:5d}{style.reset}  "
-            f"{style.bold}{class_total:5d}{style.reset}",
+            box_row(
+                style,
+                f"  {'subtotal':<{name_width}}  "
+                f"{'':>6}  "
+                f"{class_header:3d}  "
+                f"{style.green}{class_bytecode:5d}{style.reset}  "
+                f"{style.bold}{class_total:5d}{style.reset}",
+                inner_width,
+            ),
         )
-        print(f"{style.yellow}└{'─' * 58}┘{style.reset}")
+        print(box_bottom(style, inner_width))
         print()
 
     summary_title = " Summary "
